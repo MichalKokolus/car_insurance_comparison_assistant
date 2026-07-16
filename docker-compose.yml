@@ -1,0 +1,36 @@
+# One command to run the whole stack: `docker compose up --build`
+# Frontend on http://localhost:3000, backend on http://localhost:8000.
+#
+# No database service: the LangGraph checkpointer is SQLite (an embedded file, not a server),
+# so it lives inside the backend container on the `checkpoints` volume. If you switch to the
+# Postgres checkpointer, add a `postgres:` service here and point CHECKPOINT/DATABASE at it.
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      - LLM_PROVIDER=${LLM_PROVIDER:-stub}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - MODEL=${MODEL:-claude-sonnet-5}
+      - CHECKPOINT_DB=/app/data/checkpoints.sqlite
+      - CORS_ORIGINS=http://localhost:3000
+    volumes:
+      - checkpoints:/app/data
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      - BACKEND_URL=http://backend:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  checkpoints:

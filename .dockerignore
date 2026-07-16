@@ -1,0 +1,15 @@
+# Backend build context (repo root). Keep the image lean and the context small.
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.mypy_cache
+checkpoints.sqlite
+checkpoints.sqlite-*
+.env
+.git
+.claude
+frontend
+tasks
+*.md

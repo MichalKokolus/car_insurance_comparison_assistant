@@ -55,6 +55,27 @@ npm run dev                    # http://localhost:3000
 (which keeps SSE simple). Then: upload any PDF → watch the steps stream → fill the missing-fields
 form when it appears → read the report.
 
+## Run with Docker (whole stack)
+
+Requires Docker Desktop. From the repo root:
+
+```bash
+docker compose up --build
+```
+
+Frontend on http://localhost:3000, backend on http://localhost:8000. The frontend waits for the
+backend's healthcheck before starting.
+
+To run against real Claude, pass the env through (or put them in a root `.env` that compose reads):
+
+```bash
+LLM_PROVIDER=anthropic ANTHROPIC_API_KEY=sk-ant-... docker compose up --build
+```
+
+**No database container.** The LangGraph checkpointer is SQLite — an embedded file, not a server —
+so it lives in the backend container on the `checkpoints` named volume (persists across restarts).
+A separate DB service is only needed if you migrate to the Postgres checkpointer.
+
 ## Switching to real Claude
 
 Get an Anthropic API key, then in `.env`:
