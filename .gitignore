@@ -61,6 +61,10 @@ local_settings.py
 db.sqlite3
 db.sqlite3-journal
 
+# LangGraph checkpointer (this project)
+checkpoints.sqlite
+checkpoints.sqlite-*
+
 # Flask stuff:
 instance/
 .webassets-cache

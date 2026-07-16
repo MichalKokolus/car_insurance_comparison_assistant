@@ -136,11 +136,14 @@ frontend/              Next.js 15 app (upload, SSE progress, HITL form, report)
 
 ## Commands
 
-> To be filled in as scaffolding lands — do not invent commands that don't exist yet.
+- Install / env: `uv sync` (creates `.venv`, installs deps)
+- Backend: `uv run uvicorn backend.app:app --reload` (serves on :8000; `GET /health` for a liveness check)
+- Tests: `uv run pytest`
+- Frontend: `cd frontend && npm install && npm run dev` (serves on :3000; proxies `/api/*` → :8000)
+- Frontend build/type-check: `cd frontend && npm run build`
 
-- Backend (planned): `uv run uvicorn backend.app:app --reload`
-- Frontend (planned): `cd frontend && npm run dev`
-- Tests: _TBD_
+Runs keyless by default (stub provider). To use real Claude, set `ANTHROPIC_API_KEY` and
+`LLM_PROVIDER=anthropic` in `.env` — see [README.md](README.md).
 
 ## Claude usage
 
