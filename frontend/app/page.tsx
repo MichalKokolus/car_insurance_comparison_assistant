@@ -9,6 +9,31 @@ interface InterruptData {
   questions: Record<string, string>;
 }
 
+interface PolicyData {
+  insurer: string | null;
+  vehicle: string | null;
+  coverage_type: "PZP" | "kasko";
+  annual_premium: number | null;
+  anniversary_date: string | null;
+  notice_period_days: number | null;
+}
+
+interface ComparisonRow {
+  insurer: string;
+  product: string;
+  annual_premium: number;
+  premium_delta: number | null;
+  glass_cover: boolean | null;
+  animal_cover: boolean | null;
+  comparable: boolean;
+  notes: string | null;
+}
+
+interface ComparisonTable {
+  rows: ComparisonRow[];
+  summary: string | null;
+}
+
 interface Recommendation {
   verdict: "switch" | "stay";
   rationale: string;
@@ -34,7 +59,8 @@ export default function Home() {
   const [steps, setSteps] = useState<string[]>([]);
   const [prompt, setPrompt] = useState<InterruptData | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [report, setReport] = useState<string>("");
+  const [policy, setPolicy] = useState<PolicyData | null>(null);
+  const [comparison, setComparison] = useState<ComparisonTable | null>(null);
   const [recommendation, setRecommendation] = useState<Recommendation | null>(null);
   const [error, setError] = useState<string>("");
 
@@ -68,7 +94,8 @@ export default function Home() {
 
       es.addEventListener("report", (e) => {
         const data = JSON.parse((e as MessageEvent).data);
-        setReport(data.report ?? "");
+        setPolicy(data.policy ?? null);
+        setComparison(data.comparison ?? null);
         setRecommendation(data.recommendation ?? null);
       });
 
@@ -93,7 +120,8 @@ export default function Home() {
     if (!file) return;
     setError("");
     setSteps([]);
-    setReport("");
+    setPolicy(null);
+    setComparison(null);
     setRecommendation(null);
     const form = new FormData();
     form.append("file", file);
@@ -174,6 +202,85 @@ export default function Home() {
         </div>
       )}
 
+      {policy && (
+        <div className="panel">
+          <strong>Your current policy</strong>
+          <div className="table-wrap">
+            <table className="kv">
+              <tbody>
+                <tr>
+                  <th>Insurer</th>
+                  <td>{policy.insurer ?? "—"}</td>
+                </tr>
+                <tr>
+                  <th>Vehicle</th>
+                  <td>{policy.vehicle ?? "—"}</td>
+                </tr>
+                <tr>
+                  <th>Coverage</th>
+                  <td>{policy.coverage_type}</td>
+                </tr>
+                <tr>
+                  <th>Premium</th>
+                  <td>
+                    {policy.annual_premium != null ? `€${policy.annual_premium.toFixed(0)}/yr` : "—"}
+                  </td>
+                </tr>
+                <tr>
+                  <th>Anniversary</th>
+                  <td>{policy.anniversary_date ?? "—"}</td>
+                </tr>
+                <tr>
+                  <th>Notice period</th>
+                  <td>
+                    {policy.notice_period_days != null ? `${policy.notice_period_days} days` : "—"}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {comparison && comparison.rows.length > 0 && (
+        <div className="panel">
+          <strong>Market comparison</strong>
+          <div className="table-wrap">
+            <table className="compare">
+              <thead>
+                <tr>
+                  <th>Insurer</th>
+                  <th>Product</th>
+                  <th>Premium</th>
+                  <th>Δ vs current</th>
+                  <th>Glass</th>
+                  <th>Animal</th>
+                  <th>Comparable</th>
+                </tr>
+              </thead>
+              <tbody>
+                {comparison.rows.map((row, i) => (
+                  <tr key={i} className={row.comparable ? undefined : "not-comparable"}>
+                    <td>{row.insurer}</td>
+                    <td>{row.product}</td>
+                    <td>€{row.annual_premium.toFixed(0)}</td>
+                    <td>
+                      {row.premium_delta == null
+                        ? "—"
+                        : `€${row.premium_delta > 0 ? "+" : ""}${row.premium_delta.toFixed(0)}`}
+                    </td>
+                    <td className="center">{row.glass_cover ? "✓" : "✗"}</td>
+                    <td className="center">{row.animal_cover ? "✓" : "✗"}</td>
+                    <td className="center">{row.comparable ? "✓" : "✗"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {comparison.summary && <p className="summary">{comparison.summary}</p>}
+        </div>
+      )}
+
       {recommendation && (
         <div className="panel">
           <div className="row" style={{ justifyContent: "space-between" }}>
@@ -190,14 +297,12 @@ export default function Home() {
               {recommendation.best_offer.annual_premium.toFixed(0)}/yr
             </p>
           )}
+          {recommendation.cancellation_deadline && (
+            <p>
+              Cancellation deadline: <strong>{recommendation.cancellation_deadline}</strong>
+            </p>
+          )}
           <p style={{ color: "var(--muted)" }}>{recommendation.deadline_note}</p>
-        </div>
-      )}
-
-      {report && (
-        <div className="panel">
-          <strong>Full report</strong>
-          <pre className="report">{report}</pre>
         </div>
       )}
 

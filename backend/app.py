@@ -120,6 +120,8 @@ async def stream_analysis(thread_id: str, request: Request) -> EventSourceRespon
                 "data": json.dumps(
                     {
                         "report": values.get("report", ""),
+                        "policy": _jsonable(values.get("policy")),
+                        "comparison": _jsonable(values.get("comparison")),
                         "recommendation": _jsonable(values.get("recommendation")),
                     }
                 ),
