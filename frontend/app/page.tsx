@@ -34,6 +34,11 @@ interface ComparisonTable {
   summary: string | null;
 }
 
+interface ResearchQuery {
+  query: string;
+  sources: { title: string | null; url: string }[];
+}
+
 interface Recommendation {
   verdict: "switch" | "stay";
   rationale: string;
@@ -41,6 +46,14 @@ interface Recommendation {
   cancellation_deadline: string | null;
   deadline_note: string;
   best_offer: { insurer: string; product: string; annual_premium: number } | null;
+}
+
+function hostnameOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
 }
 
 const NODE_LABELS: Record<string, string> = {
@@ -60,6 +73,7 @@ export default function Home() {
   const [prompt, setPrompt] = useState<InterruptData | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [policy, setPolicy] = useState<PolicyData | null>(null);
+  const [researchLog, setResearchLog] = useState<ResearchQuery[]>([]);
   const [comparison, setComparison] = useState<ComparisonTable | null>(null);
   const [recommendation, setRecommendation] = useState<Recommendation | null>(null);
   const [error, setError] = useState<string>("");
@@ -81,8 +95,11 @@ export default function Home() {
       esRef.current = es;
 
       es.addEventListener("update", (e) => {
-        const { node } = JSON.parse((e as MessageEvent).data);
+        const { node, state } = JSON.parse((e as MessageEvent).data);
         setSteps((prev) => [...prev, NODE_LABELS[node] ?? node]);
+        if (node === "market_research" && Array.isArray(state?.research_log)) {
+          setResearchLog(state.research_log);
+        }
       });
 
       es.addEventListener("interrupt", (e) => {
@@ -121,6 +138,7 @@ export default function Home() {
     setError("");
     setSteps([]);
     setPolicy(null);
+    setResearchLog([]);
     setComparison(null);
     setRecommendation(null);
     const form = new FormData();
@@ -163,12 +181,13 @@ export default function Home() {
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
           />
           <button onClick={analyze} disabled={!file || phase === "running"}>
+            {phase === "running" && <span className="spinner light" />}
             {phase === "running" ? "Analyzing…" : "Analyze"}
           </button>
         </div>
       </div>
 
-      {steps.length > 0 && (
+      {(steps.length > 0 || phase === "running") && (
         <div className="panel">
           <strong>Progress</strong>
           <ul className="steps">
@@ -178,6 +197,12 @@ export default function Home() {
                 {s}
               </li>
             ))}
+            {phase === "running" && (
+              <li className="pending">
+                <span className="spinner" />
+                Working…
+              </li>
+            )}
           </ul>
         </div>
       )}
@@ -239,6 +264,33 @@ export default function Home() {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {researchLog.length > 0 && (
+        <div className="panel">
+          <strong>Web search sources</strong>
+          <ul className="research">
+            {researchLog.map((q, i) => (
+              <li key={i}>
+                <div className="query">&ldquo;{q.query}&rdquo;</div>
+                {q.sources.length > 0 ? (
+                  <ul className="sources">
+                    {q.sources.map((s, j) => (
+                      <li key={j}>
+                        <a href={s.url} target="_blank" rel="noreferrer">
+                          {s.title || hostnameOf(s.url)}
+                        </a>
+                        <span className="domain"> — {hostnameOf(s.url)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <span className="domain">no results</span>
+                )}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

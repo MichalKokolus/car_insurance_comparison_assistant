@@ -8,6 +8,8 @@ concretely priced offers, falls back to clearly-labelled sample data.
 
 from __future__ import annotations
 
+import json
+
 from backend.data.offers import CANNED_OFFERS, sample_offers
 from backend.graph.state import AppState
 from backend.schemas import OfferList
@@ -28,16 +30,46 @@ _EXTRACT_SYSTEM = (
 async def market_research(state: AppState) -> dict:
     provider = get_provider()
     if isinstance(provider, StubProvider):
-        return {"market_offers": list(CANNED_OFFERS)}
+        return {"market_offers": list(CANNED_OFFERS), "research_log": []}
 
-    offers = await _research_with_agent(provider, state)
+    offers, research_log = await _research_with_agent(provider, state)
     if offers:
-        return {"market_offers": offers}
+        return {"market_offers": offers, "research_log": research_log}
     # Live search found nothing concretely priced — fall back to clearly-labelled sample data.
-    return {"market_offers": sample_offers()}
+    return {"market_offers": sample_offers(), "research_log": research_log}
 
 
-async def _research_with_agent(provider, state: AppState) -> list | None:
+def _extract_research_log(messages: list) -> list[dict]:
+    """Walk the agent's message trace and pair each web_search call with the URLs it returned."""
+    from langchain_core.messages import AIMessage, ToolMessage
+
+    queries_by_call_id: dict[str, str] = {}
+    for msg in messages:
+        if isinstance(msg, AIMessage):
+            for call in msg.tool_calls or []:
+                if call.get("name") == "web_search":
+                    queries_by_call_id[call["id"]] = call.get("args", {}).get("query", "")
+
+    log: list[dict] = []
+    for msg in messages:
+        if not (isinstance(msg, ToolMessage) and msg.tool_call_id in queries_by_call_id):
+            continue
+        try:
+            parsed = json.loads(msg.content)
+        except (TypeError, ValueError):
+            parsed = []
+        if not isinstance(parsed, list):  # {"error": ..., "results": []} payload
+            parsed = []
+        sources = [
+            {"title": r.get("title"), "url": r.get("url")}
+            for r in parsed
+            if isinstance(r, dict) and r.get("url")
+        ]
+        log.append({"query": queries_by_call_id[msg.tool_call_id], "sources": sources})
+    return log
+
+
+async def _research_with_agent(provider, state: AppState) -> tuple[list | None, list[dict]]:
     from langgraph.prebuilt import create_react_agent
 
     from backend.graph.tools.search import web_search
@@ -55,6 +87,7 @@ async def _research_with_agent(provider, state: AppState) -> list | None:
             {"messages": [("user", prompt)]},
             config={"recursion_limit": RESEARCH_RECURSION_LIMIT},
         )
+        research_log = _extract_research_log(result["messages"])
         notes = result["messages"][-1].content
         if isinstance(notes, list):
             notes = " ".join(b.get("text", "") for b in notes if isinstance(b, dict))
@@ -62,6 +95,6 @@ async def _research_with_agent(provider, state: AppState) -> list | None:
             _EXTRACT_SYSTEM, str(notes)[:8000], OfferList
         )
         offers = [o for o in extracted.offers if o.insurer and o.annual_premium]
-        return offers or None
+        return offers or None, research_log
     except Exception:
-        return None
+        return None, []

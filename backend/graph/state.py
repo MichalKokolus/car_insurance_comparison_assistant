@@ -14,6 +14,7 @@ class AppState(TypedDict, total=False):
     missing_fields: list[str]
     user_answers: dict
     market_offers: list[Offer]
+    research_log: list[dict]  # queries the market_research agent ran + the URLs each returned
     comparison: Optional[ComparisonTable]
     recommendation: Optional[Recommendation]
     report: str

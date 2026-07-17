@@ -100,6 +100,39 @@ label {
   margin-right: 8px;
 }
 
+.steps li.pending {
+  display: flex;
+  align-items: center;
+  color: var(--text);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spinner {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  margin-right: 8px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+.spinner.light {
+  width: 12px;
+  height: 12px;
+  margin-right: 6px;
+  border-color: rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  vertical-align: -2px;
+}
+
 .verdict {
   display: inline-block;
   font-weight: 700;
@@ -168,6 +201,46 @@ table.compare tr.not-comparable td {
 
 table.compare tbody tr:last-child td {
   border-bottom: none;
+}
+
+ul.research {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+}
+
+ul.research > li + li {
+  margin-top: 14px;
+}
+
+ul.research .query {
+  font-size: 13px;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+ul.sources {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+ul.sources li {
+  font-size: 13px;
+  padding: 2px 0 2px 14px;
+}
+
+ul.sources a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+ul.sources a:hover {
+  text-decoration: underline;
+}
+
+.domain {
+  color: var(--muted);
 }
 
 p.summary {
