@@ -41,6 +41,10 @@ class StubProvider:
             "deterministically in backend.logic, not by the LLM."
         )
 
+    async def structured_with_images(self, system, text, images, schema):
+        # The stub ignores inputs entirely; delegate to the text path.
+        return await self.structured(system, text, schema)
+
     def chat_model(self):
         raise NotImplementedError(
             "StubProvider has no chat model. Set ANTHROPIC_API_KEY and LLM_PROVIDER=anthropic "

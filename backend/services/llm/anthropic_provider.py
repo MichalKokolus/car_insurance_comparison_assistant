@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 from typing import TypeVar
 
 from langchain_anthropic import ChatAnthropic
@@ -22,6 +23,18 @@ class AnthropicProvider:
     async def structured(self, system: str, user: str, schema: type[T]) -> T:
         model = self._model.with_structured_output(schema)
         return await model.ainvoke([SystemMessage(content=system), HumanMessage(content=user)])
+
+    async def structured_with_images(
+        self, system: str, text: str, images: list[bytes], schema: type[T]
+    ) -> T:
+        content: list[dict] = [{"type": "text", "text": text}]
+        for png in images:
+            b64 = base64.b64encode(png).decode("ascii")
+            content.append(
+                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}}
+            )
+        model = self._model.with_structured_output(schema)
+        return await model.ainvoke([SystemMessage(content=system), HumanMessage(content=content)])
 
     def chat_model(self) -> ChatAnthropic:
         return self._model

@@ -8,6 +8,15 @@ from __future__ import annotations
 
 from backend.schemas import Offer
 
+def sample_offers() -> list[Offer]:
+    """The canned offers, clearly relabelled as sample data.
+
+    Used as the fallback when live search finds no concretely priced offers, so a demo never
+    silently presents mock insurers as if they were real live results.
+    """
+    return [offer.model_copy(update={"source": "ukážkové dáta / sample data"}) for offer in CANNED_OFFERS]
+
+
 CANNED_OFFERS: list[Offer] = [
     Offer(
         insurer="Union poisťovňa",

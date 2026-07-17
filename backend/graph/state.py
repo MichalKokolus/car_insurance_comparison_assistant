@@ -9,6 +9,7 @@ from backend.schemas import ComparisonTable, Offer, PolicyData, Recommendation
 
 class AppState(TypedDict, total=False):
     pdf_text: str
+    pdf_b64: str  # raw PDF (base64) — enables the vision fallback for scanned PDFs
     policy: Optional[PolicyData]
     missing_fields: list[str]
     user_answers: dict

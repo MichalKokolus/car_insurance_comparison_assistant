@@ -21,6 +21,12 @@ class LLMProvider(Protocol):
         """Return an instance of `schema` produced from the prompt."""
         ...
 
+    async def structured_with_images(
+        self, system: str, text: str, images: list[bytes], schema: type[T]
+    ) -> T:
+        """Like `structured`, but also passes PNG page images (vision fallback for scanned PDFs)."""
+        ...
+
     def chat_model(self) -> Any:
         """Return a LangChain chat model for the ReAct research agent (real providers only)."""
         ...

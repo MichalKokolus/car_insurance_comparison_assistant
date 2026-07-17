@@ -45,16 +45,17 @@ Next.js frontend  ──HTTP/SSE──►  FastAPI backend  ──►  LangGraph
 | Orchestration | LangGraph | Fixed graph + conditional edges; one `create_react_agent` sub-agent |
 | LLM framework | LangChain + Pydantic v2 | Structured outputs via Pydantic schemas |
 | API | FastAPI + SSE | Async endpoints; Server-Sent Events for streaming graph events |
-| Checkpointer | LangGraph `SqliteSaver` | Persists state per `thread_id`; enables `interrupt()`/resume across requests |
+| Checkpointer | LangGraph `AsyncSqliteSaver` | Persists state per `thread_id`; enables `interrupt()`/resume across requests |
 | LLM | Anthropic Claude | See **Claude usage** below |
-| Research tool | web search tool | Bound to the `market_research` ReAct agent |
+| PDF intake | `pypdf` (text) + `PyMuPDF` (vision fallback) | Text-layer extraction; renders pages to images for scanned PDFs |
+| Research tool | DuckDuckGo (`ddgs`, no key) | Live web search bound to the `market_research` ReAct agent |
 | Frontend | Next.js 15 / React 19 / TypeScript | SSE client, upload, HITL form, report view |
 
 ## LangGraph flow
 
 ```
         ┌─────────────┐
-        │ intake       │  PDF → PolicyData (structured output)
+        │ intake       │  PDF → PolicyData (text, or vision fallback for scans)
         └──────┬──────┘
                ▼
         ┌─────────────┐
@@ -62,7 +63,7 @@ Next.js frontend  ──HTTP/SSE──►  FastAPI backend  ──►  LangGraph
         └──────┬──────┘◄──────────────────────────────────────┘
                ▼
         ┌──────────────────┐
-        │ market_research  │  ReAct agent + web_search tool (loop)
+        │ market_research  │  ReAct agent + live web_search (DuckDuckGo)
         └──────┬───────────┘
                ▼
         ┌──────────────────┐
@@ -94,9 +95,9 @@ class AppState(TypedDict):
 
 | Node | Kind | Responsibility |
 |---|---|---|
-| `intake` | single LLM call | PDF → `PolicyData` via structured output (vehicle, coverage limits, deductibles, premium, anniversary date, notice period). Not an agent. |
+| `intake` | single LLM call | PDF → `PolicyData` via structured output (vehicle, coverage limits, deductibles, premium, anniversary date, notice period). Uses extracted text; if extraction is near-empty (scanned PDF) and a real model is configured, falls back to sending rendered page images (vision). Not an agent. |
 | `validate` | pure Python | Check required fields; if incomplete, `interrupt()` with the list of questions. Graph suspends → frontend renders form → `/resume` feeds answers back. |
-| `market_research` | **ReAct agent** | The one real agent: `create_react_agent` + web_search. Finds current PZP/kasko offers for the vehicle profile, returns structured `Offer` objects. Decides its own queries; **cap at ~5 tool calls.** |
+| `market_research` | **ReAct agent** | The one real agent: `create_react_agent` + a live DuckDuckGo `web_search` tool. Researches PZP/kasko offers and extracts structured `Offer` objects. Decides its own queries; **cap at ~5 tool calls.** Slovak premiums live behind per-insurer quote forms, so live snippets are often unpriced — when nothing concretely priced is found it falls back to clearly-labelled **sample** offers. |
 | `coverage_compare` | LLM call | Maps each offer onto the policy's coverage dimensions (glass, animal, deductible, limits); flags non-comparable items. Output: a table, not prose. |
 | `decision` | hybrid | Deterministic Python computes the *výpoveď* deadline from anniversary date + notice period; LLM writes the switch/stay reasoning on top of the comparison. |
 | `report` | assembly | Assembles everything into the final markdown report shown in the UI. |
@@ -154,6 +155,10 @@ Runs keyless by default (stub provider). To use real Claude, set `ANTHROPIC_API_
   use, and structured outputs, consult the **`claude-api`** skill — it is the authority.
 - Structured outputs are Pydantic schemas (`PolicyData`, `Offer`, `ComparisonTable`,
   `Recommendation`) — the graph passes typed objects between nodes, not free-form text.
+- LLM-populated schemas inherit a small base (`_LLMExtract` in `schemas.py`) that normalizes
+  placeholder strings (`'<UNKNOWN>'`, `'N/A'`, `'-'`, …) to `null` before validation — models emit
+  those instead of null for fields they can't fill, and they'd otherwise crash type validation. An
+  unfound field then flows into the HITL step instead of raising.
 
 ## Cost controls & runaway-agent safety
 

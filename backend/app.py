@@ -6,6 +6,7 @@ per `thread_id` is what lets interrupt()/resume work across separate HTTP reques
 
 from __future__ import annotations
 
+import base64
 import json
 import uuid
 from contextlib import asynccontextmanager
@@ -68,7 +69,13 @@ async def start_analysis(file: UploadFile = File(...)) -> StartResponse:
     data = await file.read()
     text = extract_text(data)
     thread_id = uuid.uuid4().hex
-    RUNS[thread_id] = {"input": {"pdf_text": text, "user_answers": {}}}
+    RUNS[thread_id] = {
+        "input": {
+            "pdf_text": text,
+            "pdf_b64": base64.b64encode(data).decode("ascii"),
+            "user_answers": {},
+        }
+    }
     return StartResponse(thread_id=thread_id)
 
 

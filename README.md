@@ -87,8 +87,19 @@ MODEL=claude-sonnet-5
 ```
 
 Restart the backend. Now `intake`, `coverage_compare`, and `decision` call real Claude, and
-`market_research` runs the ReAct agent over the `web_search` tool. Everything else is identical —
-that swap is the whole point of the [`LLMProvider`](backend/services/llm/base.py) abstraction.
+`market_research` runs the ReAct agent over a **live DuckDuckGo `web_search`** tool. The swap is the
+whole point of the [`LLMProvider`](backend/services/llm/base.py) abstraction.
+
+Two behaviors only appear in real mode:
+
+- **Scanned PDFs** — if text extraction comes back near-empty, `intake` renders the pages to images
+  (PyMuPDF) and sends them to Claude to read (vision fallback).
+- **Live research, with a caveat** — the agent really does search the web, but Slovak PZP/kasko
+  *premiums* live behind per-insurer quote forms, so search snippets rarely contain concrete prices.
+  When nothing concretely priced is found, `market_research` falls back to the canned offers,
+  **relabelled `source: "sample data"`** so they're never mistaken for live results. Real premiums
+  would need quote-form automation (out of PoC scope). Swap the tool in
+  [backend/graph/tools/search.py](backend/graph/tools/search.py) to change the data source.
 
 ## Cost controls (runaway-agent safety)
 

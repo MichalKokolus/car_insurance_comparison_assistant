@@ -3,15 +3,54 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Literal, Optional
+from typing import Any, ClassVar, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 CoverageType = Literal["PZP", "kasko"]
 
+# Placeholder strings LLMs emit for "I couldn't find this" instead of null.
+_SENTINELS = {
+    "",
+    "-",
+    "—",
+    "n/a",
+    "na",
+    "none",
+    "null",
+    "nil",
+    "unknown",
+    "<unknown>",
+    "not specified",
+    "not available",
+    "not found",
+}
 
-class PolicyData(BaseModel):
+
+class _LLMExtract(BaseModel):
+    """Base for schemas the LLM fills.
+
+    Structured-output models sometimes return a placeholder string like ``'<UNKNOWN>'`` for a
+    field they can't determine, which then fails type validation on a typed field (float/date/
+    int/bool). Normalize those to None (or a per-field fallback for non-nullable fields) *before*
+    validation, so an unfound value flows into the human-in-the-loop step instead of crashing.
+    """
+
+    _NON_NULLABLE_DEFAULTS: ClassVar[dict[str, Any]] = {}
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _nullify_sentinels(cls, value: Any, info: Any) -> Any:
+        if isinstance(value, str) and value.strip().lower() in _SENTINELS:
+            return cls._NON_NULLABLE_DEFAULTS.get(info.field_name)
+        return value
+
+
+class PolicyData(_LLMExtract):
     """Structured details extracted from the user's current policy PDF."""
+
+    # coverage_type can't be None (it's a required enum with a default), so a sentinel falls back.
+    _NON_NULLABLE_DEFAULTS: ClassVar[dict[str, Any]] = {"coverage_type": "PZP"}
 
     insurer: Optional[str] = None
     vehicle: Optional[str] = None
@@ -25,8 +64,10 @@ class PolicyData(BaseModel):
     liability_limit: Optional[str] = None
 
 
-class Offer(BaseModel):
+class Offer(_LLMExtract):
     """A single market offer returned by the research step."""
+
+    _NON_NULLABLE_DEFAULTS: ClassVar[dict[str, Any]] = {"coverage_type": "PZP"}
 
     insurer: str
     product: str
@@ -39,7 +80,13 @@ class Offer(BaseModel):
     source: Optional[str] = None
 
 
-class ComparisonRow(BaseModel):
+class OfferList(_LLMExtract):
+    """Wrapper so the LLM can return a list of offers as structured output."""
+
+    offers: list[Offer] = Field(default_factory=list)
+
+
+class ComparisonRow(_LLMExtract):
     """One offer normalized against the user's current policy."""
 
     insurer: str
@@ -53,12 +100,15 @@ class ComparisonRow(BaseModel):
     notes: Optional[str] = None
 
 
-class ComparisonTable(BaseModel):
+class ComparisonTable(_LLMExtract):
     rows: list[ComparisonRow] = Field(default_factory=list)
     summary: Optional[str] = None
 
 
-class Recommendation(BaseModel):
+class Recommendation(_LLMExtract):
+    # verdict/rationale can't be None; fall back if the model returns a placeholder.
+    _NON_NULLABLE_DEFAULTS: ClassVar[dict[str, Any]] = {"verdict": "stay", "rationale": ""}
+
     verdict: Literal["switch", "stay"]
     rationale: str
     best_offer: Optional[Offer] = None
