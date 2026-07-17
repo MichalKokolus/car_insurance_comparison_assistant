@@ -2,9 +2,9 @@
 
 Guidance for Claude Code working in this repository.
 
-> **Status: greenfield.** As of this writing the repo is a fresh init with no application code yet.
-> This document describes the *intended* architecture agreed in planning. Treat it as the target to
-> build toward, and refine it (especially the Commands and Repo Structure sections) as real code lands.
+> **Status: implemented PoC.** Backend (FastAPI + LangGraph), frontend (Next.js), and tests are all
+> in the tree and runnable end-to-end, keyless, today. This document describes the actual
+> architecture — keep it in sync as the code evolves rather than treating it as aspirational.
 
 ## Overview
 
@@ -25,16 +25,21 @@ Next.js frontend  ──HTTP/SSE──►  FastAPI backend  ──►  LangGraph
   upload PDF                       POST /analysis          fixed graph, one ReAct sub-agent
   live agent-progress panel        GET  /analysis/{id}/stream (SSE)
   HITL form (on interrupt)         POST /analysis/{id}/resume
-  final report view
+  structured report view
 ```
 
-- **Frontend — Next.js.** One page: policy-PDF upload, a chat-style panel streaming agent progress
-  live, a form that appears when the graph pauses for missing info, and a final report view.
+- **Frontend — Next.js.** A single page (`frontend/app/page.tsx`): policy-PDF upload, a progress
+  panel that streams each node as it completes (with a spinner for the in-flight step, so the UI
+  never looks frozen between SSE events), a form that appears when the graph pauses for missing
+  info, and the final report rendered as **structured HTML tables** (current policy, market
+  comparison, web-search sources, recommendation + cancellation deadline) — not a raw markdown dump.
   Streaming the intermediate steps is intentional — it makes the multi-agent nature visible.
 - **Backend — FastAPI.** Owns the LangGraph app and the checkpointer. Three endpoints (below).
-  The SQLite checkpointer is what makes `interrupt()` survive across separate HTTP requests.
-- **Graph — LangGraph.** A fixed graph with conditional edges, **not** a free-form supervisor.
-  The workflow is known, so a deterministic graph is the defensible choice; the one ReAct sub-agent
+  The SQLite checkpointer is what makes `interrupt()` survive across separate HTTP requests. Runs
+  are tracked in an in-process `RUNS` dict keyed by `thread_id` — fine for this single-process PoC;
+  a multi-worker deployment would need to move that to shared storage.
+- **Graph — LangGraph.** A fixed graph with linear edges, **not** a free-form supervisor. The
+  workflow is known, so a deterministic graph is the defensible choice; the one ReAct sub-agent
   lives inside the `market_research` node.
 
 ## Tech stack
@@ -42,14 +47,14 @@ Next.js frontend  ──HTTP/SSE──►  FastAPI backend  ──►  LangGraph
 | Layer | Choice | Notes |
 |---|---|---|
 | Language (backend/graph) | Python 3.12 + `uv` | `uv` for env + dependency management |
-| Orchestration | LangGraph | Fixed graph + conditional edges; one `create_react_agent` sub-agent |
+| Orchestration | LangGraph | Fixed graph, linear edges; one `create_react_agent` sub-agent |
 | LLM framework | LangChain + Pydantic v2 | Structured outputs via Pydantic schemas |
-| API | FastAPI + SSE | Async endpoints; Server-Sent Events for streaming graph events |
+| API | FastAPI + SSE (`sse-starlette`) | Async endpoints; Server-Sent Events for streaming graph events |
 | Checkpointer | LangGraph `AsyncSqliteSaver` | Persists state per `thread_id`; enables `interrupt()`/resume across requests |
 | LLM | Anthropic Claude | See **Claude usage** below |
-| PDF intake | `pypdf` (text) + `PyMuPDF` (vision fallback) | Text-layer extraction; renders pages to images for scanned PDFs |
+| PDF intake | `pypdf` (text) + `PyMuPDF`/`pymupdf` (vision fallback) | Text-layer extraction; renders pages to images for scanned PDFs |
 | Research tool | DuckDuckGo (`ddgs`, no key) | Live web search bound to the `market_research` ReAct agent |
-| Frontend | Next.js 15 / React 19 / TypeScript | SSE client, upload, HITL form, report view |
+| Frontend | Next.js 15.1 / React 19 / TypeScript 5.7 | Single page, no UI library; `EventSource` for SSE, `fetch` for POSTs |
 
 ## LangGraph flow
 
@@ -75,20 +80,27 @@ Next.js frontend  ──HTTP/SSE──►  FastAPI backend  ──►  LangGraph
         └──────┬──────┘
                ▼
         ┌─────────────┐
-        │ report       │  final markdown report
+        │ report       │  final markdown report (kept in state; frontend builds its own tables)
         └─────────────┘
 ```
 
-### Shared state
+Edges are linear (`backend/graph/build.py`) — the only branch in the whole graph is the
+`interrupt()`/resume pause inside `validate`.
+
+### Shared state (`backend/graph/state.py`)
 
 ```python
-class AppState(TypedDict):
-    policy: PolicyData | None       # from intake
-    missing_fields: list[str]       # from validate
-    user_answers: dict              # from HITL resume
-    market_offers: list[Offer]      # from research agent
-    comparison: ComparisonTable     # from coverage_compare
-    recommendation: Recommendation  # from decision
+class AppState(TypedDict, total=False):
+    pdf_text: str                        # extracted text from the uploaded PDF
+    pdf_b64: str                         # raw PDF (base64) — enables the vision fallback for scans
+    policy: Optional[PolicyData]         # from intake / validate
+    missing_fields: list[str]            # from validate
+    user_answers: dict                   # from HITL resume
+    market_offers: list[Offer]           # from market_research
+    research_log: list[dict]             # from market_research: queries run + URLs each returned
+    comparison: Optional[ComparisonTable]  # from coverage_compare
+    recommendation: Optional[Recommendation]  # from decision
+    report: str                          # from report
 ```
 
 ### Nodes
@@ -96,43 +108,65 @@ class AppState(TypedDict):
 | Node | Kind | Responsibility |
 |---|---|---|
 | `intake` | single LLM call | PDF → `PolicyData` via structured output (vehicle, coverage limits, deductibles, premium, anniversary date, notice period). Uses extracted text; if extraction is near-empty (scanned PDF) and a real model is configured, falls back to sending rendered page images (vision). Not an agent. |
-| `validate` | pure Python | Check required fields; if incomplete, `interrupt()` with the list of questions. Graph suspends → frontend renders form → `/resume` feeds answers back. |
-| `market_research` | **ReAct agent** | The one real agent: `create_react_agent` + a live DuckDuckGo `web_search` tool. Researches PZP/kasko offers and extracts structured `Offer` objects. Decides its own queries; **cap at ~5 tool calls.** Slovak premiums live behind per-insurer quote forms, so live snippets are often unpriced — when nothing concretely priced is found it falls back to clearly-labelled **sample** offers. |
-| `coverage_compare` | LLM call | Maps each offer onto the policy's coverage dimensions (glass, animal, deductible, limits); flags non-comparable items. Output: a table, not prose. |
-| `decision` | hybrid | Deterministic Python computes the *výpoveď* deadline from anniversary date + notice period; LLM writes the switch/stay reasoning on top of the comparison. |
-| `report` | assembly | Assembles everything into the final markdown report shown in the UI. |
+| `validate` | pure Python | Check required fields (`anniversary_date`, `notice_period_days`); if incomplete, `interrupt()` with the list of questions. Graph suspends → frontend renders form → `/resume` feeds answers back, re-validates. |
+| `market_research` | **ReAct agent** | The one real agent: `create_react_agent` + a live DuckDuckGo `web_search` tool (`backend/graph/tools/search.py`), capped by `RESEARCH_RECURSION_LIMIT = 12` (~5-6 tool calls). Researches PZP/kasko offers and extracts structured `Offer` objects. Also walks the agent's message trace to build `research_log` — each query paired with the URLs it returned — surfaced on the frontend as a "Web search sources" panel. Slovak premiums live behind per-insurer quote forms, so live snippets are often unpriced — when nothing concretely priced is found it falls back to clearly-labelled **sample** offers (`backend/data/offers.py`), with an empty `research_log` in stub mode. |
+| `coverage_compare` | LLM call (or deterministic in stub mode) | Maps each offer onto the policy's coverage dimensions (glass, animal, deductible, limits); flags non-comparable items. Stub/deterministic path uses `backend.logic.build_comparison`. Output: a table, not prose. |
+| `decision` | hybrid | `backend.deadlines.compute_cancellation_deadline` (pure Python) computes the *výpoveď* deadline from anniversary date + notice period; an LLM (or `backend.logic.build_recommendation` in stub mode) writes the switch/stay reasoning on top of the comparison. The deadline and its note are always overwritten by the deterministic value afterward — never trusted from the LLM. |
+| `report` | assembly | Assembles everything into a final markdown string, stored on `state["report"]`. The `/stream` endpoint's `report` SSE event also includes the structured `policy` and `comparison` objects so the frontend renders real HTML tables instead of the markdown. |
 
 ## Human-in-the-loop & checkpointing
 
-- The backend attaches a `SqliteSaver` checkpointer to the compiled graph. Each analysis run gets a
-  `thread_id`.
+- The backend attaches an `AsyncSqliteSaver` checkpointer to the compiled graph (`backend/app.py`
+  lifespan). Each analysis run gets a `thread_id`.
 - When `validate` calls `interrupt()`, the graph suspends and its state is persisted under that
   `thread_id`. The HTTP request that started the run can return; a later `POST /resume` reloads the
-  checkpoint and continues. **This is why the checkpointer matters** — `interrupt()`/resume must work
-  across separate HTTP requests, not within one call.
+  checkpoint and continues via `Command(resume=answers)`. **This is why the checkpointer matters** —
+  `interrupt()`/resume must work across separate HTTP requests, not within one call.
 
-### Endpoints
+### Endpoints (`backend/app.py`)
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/analysis` | Start a graph run (accepts the uploaded PDF); returns `thread_id`. |
-| `GET` | `/analysis/{thread_id}/stream` | SSE stream of LangGraph events for the live progress panel. |
-| `POST` | `/analysis/{thread_id}/resume` | Answer the HITL questions; resume the suspended graph. |
+| `GET` | `/health` | Liveness check; returns the active provider name (`"stub"` or `"anthropic"`). |
+| `POST` | `/analysis` | Accepts the uploaded PDF, extracts text, mints a `thread_id`, stores the initial graph input in `RUNS`. |
+| `GET` | `/analysis/{thread_id}/stream` | SSE stream of LangGraph events (`update`, `interrupt`, `report`, `done`, `error`) for the live progress panel. |
+| `POST` | `/analysis/{thread_id}/resume` | Stores the HITL answers as the pending resume for that thread; client reconnects to `/stream` to continue. |
 
-## Proposed repo structure
-
-Target layout (create as scaffolding lands):
+## Repo structure
 
 ```
 backend/
-  app.py               FastAPI app, endpoints, SSE wiring
+  app.py                 FastAPI app, endpoints, SSE wiring, RUNS registry
+  config.py               pydantic-settings Settings (env)
+  deadlines.py            compute_cancellation_deadline() — pure, unit-tested
+  logic.py                 deterministic comparison + recommendation building (stub path & shared helpers)
+  pdf.py                   extract_text() + render_pdf_to_images() (vision fallback)
+  schemas.py               Pydantic v2: PolicyData, Offer, ComparisonTable, Recommendation + API models
+  data/
+    offers.py               canned Slovak-market offers fixture (+ sample_offers() relabeling)
   graph/
-    build.py           Graph construction + SqliteSaver, compile
-    state.py           AppState TypedDict
-    nodes/             intake, validate, market_research, coverage_compare, decision, report
-    tools/             web_search tool for the ReAct agent
-  schemas.py           Pydantic models: PolicyData, Offer, ComparisonTable, Recommendation
-frontend/              Next.js 15 app (upload, SSE progress, HITL form, report)
+    build.py                 StateGraph construction + RECURSION_LIMIT, compile with checkpointer
+    state.py                 AppState TypedDict
+    nodes/                   intake, validate, market_research, coverage_compare, decision, report
+    tools/
+      search.py               web_search tool (ddgs/DuckDuckGo) for the ReAct agent
+  services/llm/
+    base.py                  LLMProvider Protocol
+    anthropic_provider.py     wraps langchain_anthropic.ChatAnthropic
+    stub_provider.py          deterministic canned PolicyData (comparison/recommendation come from logic.py)
+    factory.py                get_provider() — key present & not forced-stub → Anthropic, else stub
+frontend/
+  app/
+    page.tsx                 the whole UI: upload, SSE client, progress panel, HITL form, report tables
+    layout.tsx
+    globals.css
+  Dockerfile
+tests/
+  test_deadline.py           deadline math
+  test_graph_stub.py         run graph in stub mode → hits interrupt → resume → Recommendation
+  test_schemas.py            _LLMExtract sentinel-to-null normalization
+docker-compose.yml         whole-stack run (backend + frontend, SQLite volume, no DB service)
+pyproject.toml / uv.lock
 ```
 
 ## Commands
@@ -142,9 +176,17 @@ frontend/              Next.js 15 app (upload, SSE progress, HITL form, report)
 - Tests: `uv run pytest`
 - Frontend: `cd frontend && npm install && npm run dev` (serves on :3000; proxies `/api/*` → :8000)
 - Frontend build/type-check: `cd frontend && npm run build`
+- Whole stack via Docker: `docker compose up --build` (:3000 frontend, :8000 backend, no DB container —
+  the checkpointer is a SQLite file on a named volume)
 
 Runs keyless by default (stub provider). To use real Claude, set `ANTHROPIC_API_KEY` and
 `LLM_PROVIDER=anthropic` in `.env` — see [README.md](README.md).
+
+> **Don't collide `npm run build` with a running `npm run dev`.** Both write to `frontend/.next`;
+> running a production build while the dev server has that directory open can corrupt its webpack
+> module cache and produce a `Cannot find module './NNN.js'` runtime error on next reload. If that
+> happens: stop the dev server, `rm -rf frontend/.next`, restart `npm run dev`. Prefer `tsc --noEmit`
+> or just reading the dev server's own output for type-checking while it's running.
 
 ## Claude usage
 
@@ -171,12 +213,13 @@ it at **two independent layers** — belt and suspenders.
 - Optionally a **workspace spend limit** as a second ceiling.
 - For this project, ~$10–15 of credits with auto-reload off comfortably covers dev + demo.
 
-**Code layer (implement in the graph):**
-- **`recursion_limit`** on graph invocation (`config={"recursion_limit": N}`) — a hard cap on total
-  graph super-steps; the run raises rather than looping forever.
-- **~5 tool-call cap** on the `market_research` agent specifically — bound how many web searches it
-  can make in one run (via a scoped recursion limit on the sub-agent and/or a tool-call counter that
-  forces the agent to conclude).
+**Code layer (implemented in the graph):**
+- **`RECURSION_LIMIT = 25`** (`backend/graph/build.py`), passed as `config={"recursion_limit": ...}`
+  on every graph invocation — a hard cap on total graph super-steps; the run raises rather than
+  looping forever.
+- **`RESEARCH_RECURSION_LIMIT = 12`** (`backend/graph/nodes/market_research.py`), scoped to just the
+  research sub-agent's `agent.ainvoke(...)` call — bounds it to roughly 5-6 tool calls (each ReAct
+  step is ~2 super-steps).
 
 When asked "how do you prevent runaway agent costs?", the answer points at both layers: an account
 ceiling that can't be exceeded, and in-code limits that stop the loop before it gets there.
@@ -191,8 +234,8 @@ ceiling that can't be exceeded, and in-code limits that stop the loop before it 
 | **anniversary date** | The policy's yearly renewal date; the reference point for cancellation timing. |
 | **notice period** | Lead time before the anniversary by which *výpoveď* must be delivered. |
 
-**Rule:** all date and deadline math is **deterministic Python**, never the LLM — dates are exactly
-what LLMs get wrong.
+**Rule:** all date and deadline math is **deterministic Python** (`backend/deadlines.py`), never the
+LLM — dates are exactly what LLMs get wrong.
 
 ## Conventions
 
@@ -200,4 +243,4 @@ what LLMs get wrong.
   data; deterministic nodes as pure functions; LLM-call nodes kept thin (build prompt → call → parse).
 - **TypeScript:** explicit prop types; named exports; colocate component-local types.
 - Keep the graph the source of truth for control flow; keep business rules (deadlines, required-field
-  checks) in plain code so they're testable without the LLM.
+  checks) in plain code (`backend/deadlines.py`, `backend/logic.py`) so they're testable without the LLM.
