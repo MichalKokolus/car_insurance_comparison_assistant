@@ -189,10 +189,10 @@ export default function Home() {
 
       {(steps.length > 0 || phase === "running") && (
         <div className="panel">
-          <strong>Progress</strong>
+          <strong className="panel-title">Progress</strong>
           <ul className="steps">
             {steps.map((s, i) => (
-              <li key={i}>
+              <li key={i} style={{ animationDelay: `${i * 40}ms` }}>
                 <span className="tick">✓</span>
                 {s}
               </li>
@@ -209,7 +209,7 @@ export default function Home() {
 
       {phase === "awaiting" && prompt && (
         <div className="panel">
-          <strong>A few details are missing</strong>
+          <strong className="panel-title">A few details are missing</strong>
           {prompt.missing_fields.map((field) => (
             <div key={field}>
               <label htmlFor={field}>{prompt.questions[field]}</label>
@@ -229,7 +229,7 @@ export default function Home() {
 
       {policy && (
         <div className="panel">
-          <strong>Your current policy</strong>
+          <strong className="panel-title">Your current policy</strong>
           <div className="table-wrap">
             <table className="kv">
               <tbody>
@@ -269,7 +269,7 @@ export default function Home() {
 
       {researchLog.length > 0 && (
         <div className="panel">
-          <strong>Web search sources</strong>
+          <strong className="panel-title">Web search sources</strong>
           <ul className="research">
             {researchLog.map((q, i) => (
               <li key={i}>
@@ -296,7 +296,7 @@ export default function Home() {
 
       {comparison && comparison.rows.length > 0 && (
         <div className="panel">
-          <strong>Market comparison</strong>
+          <strong className="panel-title">Market comparison</strong>
           <div className="table-wrap">
             <table className="compare">
               <thead>
@@ -336,7 +336,7 @@ export default function Home() {
       {recommendation && (
         <div className="panel">
           <div className="row" style={{ justifyContent: "space-between" }}>
-            <strong>Recommendation</strong>
+            <strong className="panel-title">Recommendation</strong>
             <span className={`verdict ${recommendation.verdict}`}>
               {recommendation.verdict.toUpperCase()}
             </span>
