@@ -12,6 +12,7 @@ from backend.graph.nodes.intake import intake
 from backend.graph.nodes.market_research import market_research
 from backend.graph.nodes.report import report
 from backend.graph.nodes.validate import validate
+from backend.graph.nodes.verify_offers import verify_offers
 from backend.graph.state import AppState
 
 # Graph-level cost guardrail: a hard ceiling on total super-steps for one run.
@@ -25,6 +26,7 @@ def build_graph(checkpointer: Any):
     graph.add_node("intake", intake)
     graph.add_node("validate", validate)
     graph.add_node("market_research", market_research)
+    graph.add_node("verify_offers", verify_offers)
     graph.add_node("coverage_compare", coverage_compare)
     graph.add_node("decision", decision)
     graph.add_node("report", report)
@@ -32,7 +34,8 @@ def build_graph(checkpointer: Any):
     graph.add_edge(START, "intake")
     graph.add_edge("intake", "validate")
     graph.add_edge("validate", "market_research")
-    graph.add_edge("market_research", "coverage_compare")
+    graph.add_edge("market_research", "verify_offers")
+    graph.add_edge("verify_offers", "coverage_compare")
     graph.add_edge("coverage_compare", "decision")
     graph.add_edge("decision", "report")
     graph.add_edge("report", END)

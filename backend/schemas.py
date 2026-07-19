@@ -86,6 +86,31 @@ class OfferList(_LLMExtract):
     offers: list[Offer] = Field(default_factory=list)
 
 
+VerificationStatus = Literal["price_confirmed", "mentioned_unconfirmed", "no_evidence"]
+
+
+class OfferVerification(_LLMExtract):
+    """One fact-check verdict from the verify_offers agent.
+
+    Three-way rather than boolean: Slovak insurer premiums routinely sit behind quote forms, so
+    "the insurer is mentioned but the price isn't in any snippet" is a common, honest outcome —
+    distinct from finding no trace of the insurer at all.
+    """
+
+    _NON_NULLABLE_DEFAULTS: ClassVar[dict[str, Any]] = {"status": "no_evidence"}
+
+    insurer: str
+    annual_premium: float
+    status: VerificationStatus = "no_evidence"
+    reason: str = ""
+
+
+class OfferVerificationList(_LLMExtract):
+    """Wrapper so the LLM can return a list of verification verdicts as structured output."""
+
+    verifications: list[OfferVerification] = Field(default_factory=list)
+
+
 class ComparisonRow(_LLMExtract):
     """One offer normalized against the user's current policy."""
 

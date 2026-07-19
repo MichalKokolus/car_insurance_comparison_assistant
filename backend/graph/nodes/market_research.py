@@ -61,7 +61,7 @@ def _extract_research_log(messages: list) -> list[dict]:
         if not isinstance(parsed, list):  # {"error": ..., "results": []} payload
             parsed = []
         sources = [
-            {"title": r.get("title"), "url": r.get("url")}
+            {"title": r.get("title"), "url": r.get("url"), "snippet": r.get("snippet")}
             for r in parsed
             if isinstance(r, dict) and r.get("url")
         ]

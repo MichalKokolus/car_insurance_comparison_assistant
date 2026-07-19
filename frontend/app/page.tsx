@@ -36,7 +36,7 @@ interface ComparisonTable {
 
 interface ResearchQuery {
   query: string;
-  sources: { title: string | null; url: string }[];
+  sources: { title: string | null; url: string; snippet?: string | null }[];
 }
 
 interface Recommendation {
@@ -60,6 +60,7 @@ const NODE_LABELS: Record<string, string> = {
   intake: "Extracted policy details",
   validate: "Validated required fields",
   market_research: "Researched market offers",
+  verify_offers: "Fact-checked offers against sources",
   coverage_compare: "Normalized like-for-like comparison",
   decision: "Computed recommendation + deadline",
   report: "Assembled final report",

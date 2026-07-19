@@ -8,13 +8,18 @@ from __future__ import annotations
 
 from backend.schemas import Offer
 
+SAMPLE_SOURCE_LABEL = "ukážkové dáta / sample data"
+
+
 def sample_offers() -> list[Offer]:
     """The canned offers, clearly relabelled as sample data.
 
     Used as the fallback when live search finds no concretely priced offers, so a demo never
-    silently presents mock insurers as if they were real live results.
+    silently presents mock insurers as if they were real live results. Offers carrying this label
+    are skipped by the verify_offers agent — there's no point fact-checking data that's already
+    honestly marked as synthetic.
     """
-    return [offer.model_copy(update={"source": "ukážkové dáta / sample data"}) for offer in CANNED_OFFERS]
+    return [offer.model_copy(update={"source": SAMPLE_SOURCE_LABEL}) for offer in CANNED_OFFERS]
 
 
 CANNED_OFFERS: list[Offer] = [
